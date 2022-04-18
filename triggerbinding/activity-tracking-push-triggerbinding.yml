@@ -1,0 +1,45 @@
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerBinding
+metadata:
+  name: activity-tracking-push-binding
+spec:
+  params:
+  - name: gitRepositoryUrl
+    value: $(body.repository.clone_url)
+  - name: repositoryFullname
+    value: $(body.repository.full_name)
+  - name: commitRef
+    value: $(extensions.ref)
+  - name: commitId
+    value: $(body.head_commit.id)
+  - name: commitIdShort
+    value: $(extensions.commit-id-short)
+  - name: commitDate
+    value: $(body.head_commit.timestamp)
+  - name: commitMessage
+    value: $(extensions.commit-message-fix-newline)
+  - name: commitAuthor
+    value: $(body.head_commit.author.name)
+  - name: dockerFile
+    value: "./src/main/docker/Dockerfile.jvm"
+  - name: imageRepo
+    value: quay.io/globex-recommendation/activity-tracking-service
+  - name: manifestFile
+    value: activity-tracking/values-dev.yaml
+  - name: manifestFileProd
+    value: activity-tracking/values-prod.yaml
+  - name: manifestRepoGitServer
+    value: "https://github.com"
+  - name: manifestGitTokenSecretName
+    value: globex-gitops-repo
+  - name: manifestGitTokenSecretKey
+    value: token
+  - name: manifestGitApiHost
+    value: api.github.com
+  - name: manifestRepoFullName
+    value: "globex/activity-tracking-helm-gitops"
+  - name: manifestGitApiPathPrefix
+    value: ""
+  - name: manifestGitAuthType
+    value: token
+  
