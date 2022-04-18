@@ -1,0 +1,166 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: activity-tracking-ci
+spec:
+  params:
+  - name: GIT_REPO
+    type: string
+  - name: GIT_REF
+    type: string
+  - name: IMAGE
+    type: string
+  - name: COMMIT_AUTHOR
+    type: string
+  - name: COMMIT_DATE
+    type: string
+  - name: COMMIT_SHA
+    type: string
+  - name: COMMIT_MESSAGE
+    type: string
+  - name: DOCKERFILE
+    type: string
+  - name: DEV_MANIFEST_FILE
+    type: string
+  - name: PROD_MANIFEST_FILE
+    type: string
+  - name: PROD_MANIFEST_BRANCH
+    type: string
+  - name: MANIFEST_REPO
+    type: string
+  - name: MANIFEST_GIT_TOKEN_SECRET_NAME
+    type: string
+  - name: MANIFEST_GIT_TOKEN_SECRET_KEY
+    type: string
+  - name: MANIFEST_GIT_API_HOST
+    type: string
+  - name: MANIFEST_REPO_FULL_NAME
+    type: string
+  - name: MANIFEST_API_PATH_PREFIX
+    type: string
+  - name: MANIFEST_GIT_AUTH_TYPE
+    type: string
+  tasks:
+  - name: clone-source
+    params:
+    - name: url
+      value: $(params.GIT_REPO)
+    - name: revision
+      value: $(params.GIT_REF)
+    taskRef:
+      kind: ClusterTask
+      name: git-clone
+    workspaces:
+    - name: output
+      workspace: shared-data
+  - name: build-source
+    params:
+    - name: GOALS
+      value:
+      - package
+    taskRef:
+      kind: Task
+      name: maven
+    workspaces:
+    - name: source
+      workspace: shared-data
+    - name: maven-settings
+      workspace: ephemeral
+    - name: maven-repo
+      workspace: maven-repo
+    runAfter:
+    - clone-source
+  - name: build-image
+    params:
+    - name: DOCKERFILE
+      value: $(params.DOCKERFILE)
+    - name: BUILD_EXTRA_ARGS
+      value: --label=io.openshift.build.commit.author='$(params.COMMIT_AUTHOR)' --label=io.openshift.build.commit.date='$(params.COMMIT_DATE)'
+        --label=io.openshift.build.commit.id='$(params.COMMIT_SHA)' --label=io.openshift.build.commit.message='$(params.COMMIT_MESSAGE)'
+        --label=io.openshift.build.commit.ref='$(params.GIT_REF)'
+    - name: IMAGE
+      value: $(params.IMAGE)
+    runAfter:
+    - build-source
+    taskRef:
+      kind: ClusterTask
+      name: buildah
+    workspaces:
+    - name: source
+      workspace: shared-data
+  - name: update-dev-manifest
+    params:
+    - name: IMAGE
+      value: "$(params.IMAGE)"
+    - name: MANIFEST_FILE
+      value: "$(params.DEV_MANIFEST_FILE)"
+    - name: MANIFEST_REPO
+      value: "$(params.MANIFEST_REPO)"
+    - name: GIT_TOKEN_SECRET_NAME
+      value: "$(params.MANIFEST_GIT_TOKEN_SECRET_NAME)"
+    - name: GIT_TOKEN_SECRET_KEY
+      value: "$(params.MANIFEST_GIT_TOKEN_SECRET_KEY)"
+    runAfter:
+    - build-image
+    taskRef:
+      kind: Task
+      name: update-manifest
+    workspaces:
+    - name: source
+      workspace: ephemeral
+  - name: update-prod-manifest
+    params:
+    - name: IMAGE
+      value: "$(params.IMAGE)"
+    - name: MANIFEST_FILE
+      value: "$(params.PROD_MANIFEST_FILE)"
+    - name: TARGET_BRANCH
+      value: "$(params.PROD_MANIFEST_BRANCH)"
+    - name: CREATE_TARGET_BRANCH
+      value: "true"
+    - name: MANIFEST_REPO
+      value: "$(params.MANIFEST_REPO)"
+    - name: GIT_TOKEN_SECRET_NAME
+      value: "$(params.MANIFEST_GIT_TOKEN_SECRET_NAME)"
+    - name: GIT_TOKEN_SECRET_KEY
+      value: "$(params.MANIFEST_GIT_TOKEN_SECRET_KEY)"
+    runAfter:
+    - update-dev-manifest
+    taskRef:
+      kind: Task
+      name: update-manifest
+    workspaces:
+    - name: source
+      workspace: ephemeral
+  - name: create-pr-prod
+    params:
+    - name: GIT_HOST_URL
+      value: "$(params.MANIFEST_GIT_API_HOST)"
+    - name: REPO_FULL_NAME
+      value: "$(params.MANIFEST_REPO_FULL_NAME)"
+    - name: API_PATH_PREFIX
+      value: "$(params.MANIFEST_API_PATH_PREFIX)"
+    - name: GIT_TOKEN_SECRET_NAME
+      value: "$(params.MANIFEST_GIT_TOKEN_SECRET_NAME)"
+    - name: GIT_TOKEN_SECRET_KEY
+      value: "$(params.MANIFEST_GIT_TOKEN_SECRET_KEY)"
+    - name: AUTH_TYPE
+      value: "$(params.MANIFEST_GIT_AUTH_TYPE)"
+    - name: HEAD
+      value: "$(params.PROD_MANIFEST_BRANCH)"
+    - name: BASE
+      value: main
+    - name: TITLE
+      value: "Update prod image for $(params.PROD_MANIFEST_BRANCH)"
+    - name: BODY
+      value: "Production update: $(params.COMMIT_MESSAGE)"
+    runAfter: 
+    - update-prod-manifest
+    taskRef:
+      kind: Task
+      name: open-pull-request
+  workspaces:
+  - name: shared-data
+    description: This workspace will receive the cloned git repo.
+  - name: maven-repo
+  - name: ephemeral
